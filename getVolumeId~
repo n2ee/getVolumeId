@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# retrieve the volume ID for the specified USB disk.
+#
+# Depends heavily on output of diskutil, so it's sensitive to undocumented changes in its output
+#
+#
+SCRIPTNAME=`basename $0`
+DISKINFO=`mktemp /tmp/${SCRIPTNAME}.XXXXXX` || exit 1
+diskutil info $1 > $DISKINFO 2> /dev/null || exit 1
+
+# Is it a USB disk? We're only interested in USB devices
+PROTOCOL=$(awk -F': ' '/Protocol/ {print $2}' $DISKINFO | xargs)
+if [ "$PROTOCOL" != "USB" ]; then
+    echo "$1 is not a USB device" >&2
+    exit 1
+fi
+
+# Is it FAT32? We want FAT32
+PARTITION_TYPE=$(awk -F': ' '/Partition Type/ {print $2}' $DISKINFO | xargs)
+if [ "$PARTITION_TYPE" != "DOS_FAT_32" ]; then
+    echo "$1 is not a MS-DOS FAT32 device" >&2
+    exit 1
+fi
+
+DEVICE_ID=$(awk -F': ' '/Device Identifier/ {print $2}' $DISKINFO | xargs)
+DEVICE_NODE="/dev/${DEVICE_ID}"
+
+# Need to unmount the disk so we can peek at the header details
+diskutil unmount $1 > /dev/null 2>&1 || exit 1
+
+
+# Peek at the disk header to extract the volume id
+var="$(/usr/local/bin/get_vsn ${DEVICE_NODE})"
+echo "${var:0:${#var}/2}-${var:${#var}/2}"
+
+diskutil mount $DEVICE_ID > /dev/null 2>&1  || exit 1
+rm -f $DISKINFO
+exit 0
